@@ -17,18 +17,22 @@ from miditok.utils import split_files_for_training
 from torch.utils.data import DataLoader
 from pathlib import Path
 
+import time
+from pygame import mixer
+
 # with open('../input.txt', 'r', encoding='utf-8') as f:
 #   text = f.read()
 
+mixer.init()
 
 vocab_size = 30000
 # hyperparameters
-batch_size = 64 # how many independent sequences will we process in parallel?
-block_size = 256 # what is the maximum context length for predictions?
+batch_size = 32 # how many independent sequences will we process in parallel?
+block_size = 512 # what is the maximum context length for predictions?
 eval_interval = 100
-learning_rate = 3e-4
+learning_rate = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-eval_iters = 200
+eval_iters = 5
 n_embd = 128
 n_head = 8
 n_layer = 4
@@ -48,28 +52,28 @@ print('making tokenizer')
 
 ## Creating a multitrack tokenizer, read the doc to explore all the parameters
 config = TokenizerConfig(num_velocities=16, use_chords=True, use_programs=True)
-tokenizer = REMI(params=Path('../model_cache/tokenizer.json'))
+tokenizer = REMI(params=Path('model_cache/tokenizer.json'))
 
 print('training tokenizer')
 
 # Train the tokenizer with Byte Pair Encoding (BPE)
 files_paths = list(Path('C:/Users/clack/Downloads/midis').glob("**/*.mid"))
 # tokenizer.train(vocab_size=vocab_size, files_paths=files_paths)
-# tokenizer.save_pretrained(Path('../model_cache'))
-# tokenizer.from_pretrained(Path('../model_cache'))
+# tokenizer.save_pretrained(Path('model_cache'))
+tokenizer.from_pretrained(Path('model_cache'))
 # And pushing it to the Hugging Face hub (you can download it back with .from_pretrained)
 # tokenizer.push_to_hub("username/model-name", private=True, token="your_hf_token")
 
 print('splitting midi files')
 
 # Split MIDIs into smaller chunks for training
-dataset_chunks_dir = Path('../training_data/chunks')
-# split_files_for_training(
-#     files_paths=files_paths,
-#     tokenizer=tokenizer,
-#     save_dir=dataset_chunks_dir,
-#     max_seq_len=1024,
-# )
+dataset_chunks_dir = Path('training_data/chunks')
+#split_files_for_training(
+#    files_paths=files_paths,
+#    tokenizer=tokenizer,
+#    save_dir=dataset_chunks_dir,
+#    max_seq_len=block_size,
+#)
 
 midi_file_paths = list(dataset_chunks_dir.glob("**/*.mid"))
 n = int(0.9*len(midi_file_paths)) # first 90% will be train, rest val
@@ -86,18 +90,18 @@ train_dataset = DatasetMIDI(
 )
 
 train_collator = DataCollator(tokenizer.pad_token_id, copy_inputs_as_labels=True)
-train_dataloader = DataLoader(train_dataset, batch_size=batch_size, collate_fn=train_collator, shuffle=True)
+train_dataloader = DataLoader(train_dataset, batch_size=batch_size, collate_fn=train_collator, shuffle=True, pin_memory=True)
 
 
 test_dataset = DatasetMIDI(
     files_paths=midi_file_paths[n:],
     tokenizer=tokenizer,
-    max_seq_len=1024,
+    max_seq_len=block_size,
     bos_token_id=tokenizer["BOS_None"],
     eos_token_id=tokenizer["EOS_None"],
 )
 test_collator = DataCollator(tokenizer.pad_token_id, copy_inputs_as_labels=True)
-test_dataloader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=test_collator)
+test_dataloader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=test_collator, pin_memory=True)
 
 print('done creating datasets')
 
@@ -124,7 +128,7 @@ class Head(nn.Module):
     wei = wei.masked_fill(self.tril[:t, :t] == 0, float('-inf'))
     if attn_mask is not None:
       attn_mask = attn_mask.unsqueeze(1).expand_as(wei)
-      wei = wei.masked_fill(attn_mask == 0, float('-inf'))
+      # wei = wei.masked_fill(attn_mask == 0, float('-inf'))
     wei = torch.softmax(wei, dim=-1)
     wei = self.dropout(wei)
 
@@ -219,7 +223,7 @@ def estimate_loss():
     model.eval()
     losses = torch.zeros(eval_iters)
     batches = 0
-    for (k, batch) in enumerate(train_dataloader):
+    for (k, batch) in enumerate(test_dataloader):
       if batches >= eval_iters:
         break
       batches += 1
@@ -262,30 +266,33 @@ def train(max_iters: int):
     # every once in a while evaluate the loss on train and val sets
     if step % eval_interval == 0 or step == max_iters - 1:
       test_loss = estimate_loss()
-      print(f"step {step}: train loss {losses[:k].mean():.4f}, val loss {test_loss:.4f}")
+      print(f"step {step}: train loss {losses[:k].mean().item():.4f}, val loss {test_loss:.4f}")
 
     # evaluate the loss
-    logits, loss = model(batch['input_ids'], batch['labels'], batch['attention_mask'])
+    x, y, attn = batch['input_ids'].to(device), batch['labels'].to(device), batch['attention_mask'].to(device)
+    logits, loss = model(x, y, attn)
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
 
     if k < len(losses):
       losses[k] = loss
+    else:
+      k = 0
     k += 1
 
 
 def handle_command(parts: list[str]):
   command = parts[0]
   if command == 'load':
-    model.load_state_dict(torch.load('../model_cache/weights.pth', weights_only=True))
+    model.load_state_dict(torch.load('model_cache/weights.pth', weights_only=True))
     print('Loaded model!')
   elif command == 'train':
     iter = 5000 if len(parts) == 1 else int(parts[1])
     print(f'Training for {iter} iterations...')
     train(iter)
   elif command == 'save':
-    torch.save(model.state_dict(), '../model_cache/weights.pth')
+    torch.save(model.state_dict(), 'model_cache/weights.pth')
     print('Saved model!')
   elif command == 'generate':
     length = 2000 if len(parts) == 1 else int(parts[1])
@@ -294,7 +301,18 @@ def handle_command(parts: list[str]):
     context = torch.zeros((1, 1), dtype=torch.long, device=device)
 
     tokens = m.generate(context, max_new_tokens=length)[0].tolist()
-    tokenizer.decode(tokens, output_path='../model_cache/generated.mid')
+    score = tokenizer.decode(tokens)
+    score.dump_midi('model_cache/generated.mid')
+  elif command == 'play':
+    try:
+      mixer.music.load('model_cache/generated.mid')
+      print('Playing music!')
+    except FileNotFoundError:
+      print('No generated music!')
+      return
+    mixer.music.play()
+    while mixer.music.get_busy():
+      time.sleep(1)
   else:
     print('Unknown command!')
 
