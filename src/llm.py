@@ -5,10 +5,101 @@
 # feed forward
 # - linear layers with relu, layer norm, dropout
 # residuals - after head and feed forward
-
+import typing
 
 import torch
 import torch.nn as nn
+
+import miditok
+from miditok import REMI, TokenizerConfig
+from miditok.pytorch_data import DatasetMIDI, DataCollator
+from miditok.utils import split_files_for_training
+from torch.utils.data import DataLoader
+from pathlib import Path
+
+# with open('../input.txt', 'r', encoding='utf-8') as f:
+#   text = f.read()
+
+
+vocab_size = 30000
+# hyperparameters
+batch_size = 64 # how many independent sequences will we process in parallel?
+block_size = 256 # what is the maximum context length for predictions?
+eval_interval = 100
+learning_rate = 3e-4
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+eval_iters = 200
+n_embd = 128
+n_head = 8
+n_layer = 4
+dropout = 0.2
+# create a mapping from characters to integers
+# stoi = { ch:i for i,ch in enumerate(chars) }
+# itos = { i:ch for i,ch in enumerate(chars) }
+# encode = lambda s: [stoi[c] for c in s] # encoder: take a string, output a list of integers
+# decode = lambda l: ''.join([itos[i] for i in l]) # decoder: take a list of integers, output a string
+# Train and test splits
+# data = torch.tensor(encode(text), dtype=torch.long)
+# n = int(0.9*len(data)) # first 90% will be train, rest val
+# train_data = data[:n]
+# val_data = data[n:]
+
+print('making tokenizer')
+
+## Creating a multitrack tokenizer, read the doc to explore all the parameters
+config = TokenizerConfig(num_velocities=16, use_chords=True, use_programs=True)
+tokenizer = REMI(params=Path('../model_cache/tokenizer.json'))
+
+print('training tokenizer')
+
+# Train the tokenizer with Byte Pair Encoding (BPE)
+files_paths = list(Path('C:/Users/clack/Downloads/midis').glob("**/*.mid"))
+# tokenizer.train(vocab_size=vocab_size, files_paths=files_paths)
+# tokenizer.save_pretrained(Path('../model_cache'))
+# tokenizer.from_pretrained(Path('../model_cache'))
+# And pushing it to the Hugging Face hub (you can download it back with .from_pretrained)
+# tokenizer.push_to_hub("username/model-name", private=True, token="your_hf_token")
+
+print('splitting midi files')
+
+# Split MIDIs into smaller chunks for training
+dataset_chunks_dir = Path('../training_data/chunks')
+# split_files_for_training(
+#     files_paths=files_paths,
+#     tokenizer=tokenizer,
+#     save_dir=dataset_chunks_dir,
+#     max_seq_len=1024,
+# )
+
+midi_file_paths = list(dataset_chunks_dir.glob("**/*.mid"))
+n = int(0.9*len(midi_file_paths)) # first 90% will be train, rest val
+
+print('creating train and test datasets')
+
+# Create a Dataset, a DataLoader and a collator to train a model
+train_dataset = DatasetMIDI(
+    files_paths=midi_file_paths[:n],
+    tokenizer=tokenizer,
+    max_seq_len=block_size,
+    bos_token_id=tokenizer["BOS_None"],
+    eos_token_id=tokenizer["EOS_None"],
+)
+
+train_collator = DataCollator(tokenizer.pad_token_id, copy_inputs_as_labels=True)
+train_dataloader = DataLoader(train_dataset, batch_size=batch_size, collate_fn=train_collator, shuffle=True)
+
+
+test_dataset = DatasetMIDI(
+    files_paths=midi_file_paths[n:],
+    tokenizer=tokenizer,
+    max_seq_len=1024,
+    bos_token_id=tokenizer["BOS_None"],
+    eos_token_id=tokenizer["EOS_None"],
+)
+test_collator = DataCollator(tokenizer.pad_token_id, copy_inputs_as_labels=True)
+test_dataloader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=test_collator)
+
+print('done creating datasets')
 
 
 class Head(nn.Module):
@@ -21,7 +112,7 @@ class Head(nn.Module):
     self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
     self.dropout = nn.Dropout(dropout)
 
-  def forward(self, x: torch.Tensor):
+  def forward(self, x: torch.Tensor, attn_mask: typing.Union[torch.Tensor, None]) -> torch.Tensor:
     b, t, c = x.shape
 
     key = self.key(x)
@@ -31,6 +122,9 @@ class Head(nn.Module):
     # divide by square root of head size to maintain variance
     wei = query @ key.transpose(1, 2) * self.head_size**-0.5
     wei = wei.masked_fill(self.tril[:t, :t] == 0, float('-inf'))
+    if attn_mask is not None:
+      attn_mask = attn_mask.unsqueeze(1).expand_as(wei)
+      wei = wei.masked_fill(attn_mask == 0, float('-inf'))
     wei = torch.softmax(wei, dim=-1)
     wei = self.dropout(wei)
 
@@ -38,14 +132,14 @@ class Head(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-  def __init__(self, num_heads: int, head_size: int, embed_dim: int):
+  def __init__(self, num_heads: int, embed_dim: int):
     super().__init__()
     self.heads = nn.ModuleList([Head(embed_dim, embed_dim // num_heads) for _ in range(num_heads)])
     self.proj = nn.Linear(embed_dim, embed_dim)
     self.dropout = nn.Dropout(dropout)
 
-  def forward(self, x: torch.Tensor):
-    out = torch.cat([h(x) for h in self.heads], dim=-1)
+  def forward(self, x: torch.Tensor, attn_mask: typing.Union[torch.Tensor, None]):
+    out = torch.cat([h(x, attn_mask) for h in self.heads], dim=-1)
     out = self.dropout(self.proj(out))
     return out
 
@@ -67,13 +161,13 @@ class FeedForward(nn.Module):
 class Block(nn.Module):
   def __init__(self, embed_dim: int, heads: int):
     super().__init__()
-    self.sa = MultiHeadAttention(heads, embed_dim // heads, embed_dim)
+    self.sa = MultiHeadAttention(heads, embed_dim)
     self.ffwd = FeedForward(embed_dim)
     self.ln1 = nn.LayerNorm(embed_dim)
     self.ln2 = nn.LayerNorm(embed_dim)
 
-  def forward(self, x: torch.Tensor):
-    x = self.sa(self.ln1(x)) + x
+  def forward(self, x: torch.Tensor, attn_mask: typing.Union[torch.Tensor, None]) -> torch.Tensor:
+    x = self.sa(self.ln1(x), attn_mask) + x
     x = self.ffwd(self.ln2(x)) + x
     return x
 
@@ -84,17 +178,19 @@ class LM(nn.Module):
     self.block_size = block_size
     self.token_embedding = nn.Embedding(vocab_size, embed_dim)
     self.position_embedding = nn.Embedding(block_size, embed_dim)
-    self.blocks = nn.Sequential(*[Block(embed_dim, n_head) for _ in range(layers)])
+    self.blocks = nn.ModuleList([Block(embed_dim, n_head) for _ in range(layers)])
     self.ln = nn.LayerNorm(embed_dim)
     self.lm_head = nn.Linear(embed_dim, vocab_size)
 
-  def forward(self, x: torch.Tensor, targets=None):
+  def forward(self, x: torch.Tensor, targets=None, attn_mask: torch.Tensor = None):
     b, t = x.shape
 
     token = self.token_embedding(x)
     position = self.position_embedding(torch.arange(t, device=device))
+
     x = token + position
-    x = self.blocks(x)
+    for block in self.blocks:
+      x = block(x, attn_mask)
     x = self.ln(x)
     logits = self.lm_head(x)
 
@@ -118,60 +214,33 @@ class LM(nn.Module):
     return x
 
 
-with open('../input.txt', 'r', encoding='utf-8') as f:
-  text = f.read()
-
-# here are all the unique characters that occur in this text
-chars = sorted(list(set(text)))
-vocab_size = len(chars)
-# hyperparameters
-batch_size = 128 # how many independent sequences will we process in parallel?
-block_size = 256 # what is the maximum context length for predictions?
-max_iters = 5000
-eval_interval = 100
-learning_rate = 3e-4
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-eval_iters = 200
-n_embd = 128
-n_head = 8
-n_layer = 4
-dropout = 0.2
-# create a mapping from characters to integers
-stoi = { ch:i for i,ch in enumerate(chars) }
-itos = { i:ch for i,ch in enumerate(chars) }
-encode = lambda s: [stoi[c] for c in s] # encoder: take a string, output a list of integers
-decode = lambda l: ''.join([itos[i] for i in l]) # decoder: take a list of integers, output a string
-# Train and test splits
-data = torch.tensor(encode(text), dtype=torch.long)
-n = int(0.9*len(data)) # first 90% will be train, rest val
-train_data = data[:n]
-val_data = data[n:]
-
-
 @torch.no_grad()
 def estimate_loss():
-    out = {}
     model.eval()
-    for split in ['train', 'val']:
-        losses = torch.zeros(eval_iters)
-        for k in range(eval_iters):
-            X, Y = get_batch(split)
-            logits, loss = model(X, Y)
-            losses[k] = loss.item()
-        out[split] = losses.mean()
+    losses = torch.zeros(eval_iters)
+    batches = 0
+    for (k, batch) in enumerate(train_dataloader):
+      if batches >= eval_iters:
+        break
+      batches += 1
+      X, Y, attn = batch['input_ids'], batch['labels'], batch['attention_mask']
+      X, Y, attn = X.to(device), Y.to(device), attn.to(device)
+      logits, loss = model(X, Y, attn)
+      losses[k] = loss.item()
+    out = losses.mean()
     model.train()
     return out
 
 
 # data loading
-def get_batch(split):
-    # generate a small batch of data of inputs x and targets y
-    data = train_data if split == 'train' else val_data
-    ix = torch.randint(len(data) - block_size, (batch_size,))
-    x = torch.stack([data[i:i+block_size] for i in ix])
-    y = torch.stack([data[i+1:i+block_size+1] for i in ix])
-    x, y = x.to(device), y.to(device)
-    return x, y
+# def get_batch(split):
+#     # generate a small batch of data of inputs x and targets y
+#     data = train_data if split == 'train' else val_data
+#     ix = torch.randint(len(data) - block_size, (batch_size,))
+#     x = torch.stack([data[i:i+block_size] for i in ix])
+#     y = torch.stack([data[i+1:i+block_size+1] for i in ix])
+#     x, y = x.to(device), y.to(device)
+#     return x, y
 
 
 model = LM(embed_dim=n_embd, vocab_size=vocab_size, block_size=block_size, layers=n_layer)
@@ -184,21 +253,26 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
 
 def train(max_iters: int):
-  for iter in range(max_iters):
+  losses = torch.zeros(eval_iters)
+  k = 0
+  for (step, batch) in enumerate(train_dataloader):
+    if step >= max_iters:
+      break
 
-      # every once in a while evaluate the loss on train and val sets
-      if iter % eval_interval == 0 or iter == max_iters - 1:
-          losses = estimate_loss()
-          print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+    # every once in a while evaluate the loss on train and val sets
+    if step % eval_interval == 0 or step == max_iters - 1:
+      test_loss = estimate_loss()
+      print(f"step {step}: train loss {losses[:k].mean():.4f}, val loss {test_loss:.4f}")
 
-      # sample a batch of data
-      xb, yb = get_batch('train')
+    # evaluate the loss
+    logits, loss = model(batch['input_ids'], batch['labels'], batch['attention_mask'])
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    optimizer.step()
 
-      # evaluate the loss
-      logits, loss = model(xb, yb)
-      optimizer.zero_grad(set_to_none=True)
-      loss.backward()
-      optimizer.step()
+    if k < len(losses):
+      losses[k] = loss
+    k += 1
 
 
 def handle_command(parts: list[str]):
@@ -218,7 +292,9 @@ def handle_command(parts: list[str]):
     # generate from the model
     print('Generating....')
     context = torch.zeros((1, 1), dtype=torch.long, device=device)
-    print(decode(m.generate(context, max_new_tokens=length)[0].tolist()))
+
+    tokens = m.generate(context, max_new_tokens=length)[0].tolist()
+    tokenizer.decode(tokens, output_path='../model_cache/generated.mid')
   else:
     print('Unknown command!')
 
