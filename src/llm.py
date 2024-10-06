@@ -260,33 +260,35 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 def train(max_iters: int):
   losses = torch.zeros(eval_iters)
   k = 0
-  for (step, batch) in enumerate(train_dataloader):
-    # x, y, attn = batch['input_ids'], batch['labels'], batch['attention_mask']
-    # print('X:', x.shape, x[0])
-    # print('Y', y.shape, y[0])
-    # print('attn', attn.shape, attn[0])
-    # print('mask?', x.masked_fill(attn == 0, -1))
-    # return
-    if step >= max_iters:
-      break
+  step = 0
+  while step < max_iters:
+    for batch in train_dataloader:
+      # x, y, attn = batch['input_ids'], batch['labels'], batch['attention_mask']
+      # print('X:', x.shape, x[0])
+      # print('Y', y.shape, y[0])
+      # print('attn', attn.shape, attn[0])
+      # print('mask?', x.masked_fill(attn == 0, -1))
+      # return
+      if step >= max_iters:
+        break
 
-    # every once in a while evaluate the loss on train and val sets
-    if step % eval_interval == 0 or step == max_iters - 1:
-      test_loss = estimate_loss()
-      print(f"step {step}: train loss {losses[:k].mean().item():.4f}, val loss {test_loss:.4f}")
+      # every once in a while evaluate the loss on train and val sets
+      if step % eval_interval == 0 or step == max_iters - 1:
+        test_loss = estimate_loss()
+        print(f"step {step}: train loss {losses[:k].mean().item():.4f}, val loss {test_loss:.4f}")
 
-    # evaluate the loss
-    x, y, attn = batch['input_ids'].to(device), batch['labels'].to(device), batch['attention_mask'].to(device)
-    logits, loss = model(x, y, attn)
-    optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    optimizer.step()
+      # evaluate the loss
+      x, y, attn = batch['input_ids'].to(device), batch['labels'].to(device), batch['attention_mask'].to(device)
+      logits, loss = model(x, y, attn)
+      optimizer.zero_grad(set_to_none=True)
+      loss.backward()
+      optimizer.step()
 
-    if k < len(losses):
-      losses[k] = loss
-    else:
-      k = 0
-    k += 1
+      if k < len(losses):
+        losses[k] = loss
+      else:
+        k = 0
+      k += 1
 
 
 def handle_command(parts: list[str]):
