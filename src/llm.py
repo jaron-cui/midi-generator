@@ -89,7 +89,7 @@ train_dataset = DatasetMIDI(
     eos_token_id=tokenizer["EOS_None"],
 )
 
-train_collator = DataCollator(tokenizer.pad_token_id, copy_inputs_as_labels=True)
+train_collator = DataCollator(tokenizer.pad_token_id, copy_inputs_as_labels=True, shift_labels=True)
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, collate_fn=train_collator, shuffle=True, pin_memory=True)
 
 
@@ -100,7 +100,7 @@ test_dataset = DatasetMIDI(
     bos_token_id=tokenizer["BOS_None"],
     eos_token_id=tokenizer["EOS_None"],
 )
-test_collator = DataCollator(tokenizer.pad_token_id, copy_inputs_as_labels=True)
+test_collator = DataCollator(tokenizer.pad_token_id, copy_inputs_as_labels=True, shift_labels=True)
 test_dataloader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=test_collator, pin_memory=True)
 
 print('done creating datasets')
@@ -128,7 +128,7 @@ class Head(nn.Module):
     wei = wei.masked_fill(self.tril[:t, :t] == 0, float('-inf'))
     if attn_mask is not None:
       attn_mask = attn_mask.unsqueeze(1).expand_as(wei)
-      # wei = wei.masked_fill(attn_mask == 0, float('-inf'))
+      wei = wei.masked_fill(attn_mask == 0, float('-inf'))
     wei = torch.softmax(wei, dim=-1)
     wei = self.dropout(wei)
 
@@ -203,7 +203,10 @@ class LM(nn.Module):
       b, t, c = logits.shape
       logits = logits.view(b * t, c)
       targets = targets.view(b * t)
-      loss = torch.nn.functional.cross_entropy(logits, targets)
+      loss = torch.nn.functional.cross_entropy(logits, targets, reduction='none')
+      attn_mask = attn_mask.view(b * t)
+      loss = loss * attn_mask
+      loss = loss.sum() / attn_mask.sum()
 
     return logits, loss
 
@@ -222,11 +225,9 @@ class LM(nn.Module):
 def estimate_loss():
     model.eval()
     losses = torch.zeros(eval_iters)
-    batches = 0
     for (k, batch) in enumerate(test_dataloader):
-      if batches >= eval_iters:
+      if k >= eval_iters:
         break
-      batches += 1
       X, Y, attn = batch['input_ids'], batch['labels'], batch['attention_mask']
       X, Y, attn = X.to(device), Y.to(device), attn.to(device)
       logits, loss = model(X, Y, attn)
@@ -260,6 +261,12 @@ def train(max_iters: int):
   losses = torch.zeros(eval_iters)
   k = 0
   for (step, batch) in enumerate(train_dataloader):
+    # x, y, attn = batch['input_ids'], batch['labels'], batch['attention_mask']
+    # print('X:', x.shape, x[0])
+    # print('Y', y.shape, y[0])
+    # print('attn', attn.shape, attn[0])
+    # print('mask?', x.masked_fill(attn == 0, -1))
+    # return
     if step >= max_iters:
       break
 
