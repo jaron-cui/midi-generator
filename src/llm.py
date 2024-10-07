@@ -5,6 +5,7 @@
 # feed forward
 # - linear layers with relu, layer norm, dropout
 # residuals - after head and feed forward
+import random
 import typing
 
 import torch
@@ -75,7 +76,9 @@ dataset_chunks_dir = Path('training_data/chunks')
 #    max_seq_len=block_size,
 #)
 
+random.seed(2024)
 midi_file_paths = list(dataset_chunks_dir.glob("**/*.mid"))
+random.shuffle(midi_file_paths)
 n = int(0.9*len(midi_file_paths)) # first 90% will be train, rest val
 
 print('creating train and test datasets')
@@ -262,6 +265,7 @@ def train(max_iters: int):
   k = 0
   step = 0
   while step < max_iters:
+    torch.cuda.empty_cache()
     for batch in train_dataloader:
       # x, y, attn = batch['input_ids'], batch['labels'], batch['attention_mask']
       # print('X:', x.shape, x[0])
@@ -289,6 +293,7 @@ def train(max_iters: int):
       else:
         k = 0
       k += 1
+      step += 1
 
 
 def handle_command(parts: list[str]):
