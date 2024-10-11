@@ -5,6 +5,7 @@
 # feed forward
 # - linear layers with relu, layer norm, dropout
 # residuals - after head and feed forward
+import datetime
 import random
 import typing
 
@@ -20,6 +21,8 @@ from pathlib import Path
 
 import time
 from pygame import mixer
+import math
+import numpy
 
 # with open('../input.txt', 'r', encoding='utf-8') as f:
 #   text = f.read()
@@ -28,15 +31,15 @@ mixer.init()
 
 vocab_size = 30000
 # hyperparameters
-batch_size = 32 # how many independent sequences will we process in parallel?
+batch_size = 16 # how many independent sequences will we process in parallel?
 block_size = 512 # what is the maximum context length for predictions?
 eval_interval = 100
 learning_rate = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 5
-n_embd = 128
-n_head = 8
-n_layer = 4
+n_embd = 384
+n_head = 16
+n_layer = 8
 dropout = 0.2
 # create a mapping from characters to integers
 # stoi = { ch:i for i,ch in enumerate(chars) }
@@ -261,11 +264,15 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
 
 def train(max_iters: int):
-  losses = torch.zeros(eval_iters)
+  print(f'Training start time: {datetime.datetime.now().time()}')
+  losses = torch.zeros(eval_interval)
   k = 0
   step = 0
+  eval_times = torch.zeros(max_iters // eval_interval)
+  eval_start = time.perf_counter()
   while step < max_iters:
     torch.cuda.empty_cache()
+    print(f'Epoch begin: {datetime.datetime.now().time()}')
     for batch in train_dataloader:
       # x, y, attn = batch['input_ids'], batch['labels'], batch['attention_mask']
       # print('X:', x.shape, x[0])
@@ -279,7 +286,16 @@ def train(max_iters: int):
       # every once in a while evaluate the loss on train and val sets
       if step % eval_interval == 0 or step == max_iters - 1:
         test_loss = estimate_loss()
-        print(f"step {step}: train loss {losses[:k].mean().item():.4f}, val loss {test_loss:.4f}")
+        eval_time = time.perf_counter() - eval_start
+        eval_start = time.perf_counter()
+        eval_i = step // eval_interval
+        if eval_i != 0:
+          eval_times[eval_i - 1] = eval_time
+          est_time_left = numpy.average(eval_times[:eval_i]) * (len(eval_times) - eval_i)
+          eta = (datetime.timedelta(0, float(est_time_left)) + datetime.datetime.now()).time()
+        else:
+          eta = 'unknown'
+        print(f"step {step}: train loss {losses[:k].mean().item():.4f}, val loss {test_loss:.4f}, in {eval_time:.4f}s, eta {eta}")
 
       # evaluate the loss
       x, y, attn = batch['input_ids'].to(device), batch['labels'].to(device), batch['attention_mask'].to(device)
@@ -295,6 +311,8 @@ def train(max_iters: int):
       k += 1
       step += 1
 
+  print(f'Training end time: {datetime.datetime.now().time()}')
+
 
 def handle_command(parts: list[str]):
   command = parts[0]
@@ -302,9 +320,11 @@ def handle_command(parts: list[str]):
     model.load_state_dict(torch.load('model_cache/weights.pth', weights_only=True))
     print('Loaded model!')
   elif command == 'train':
-    iter = 5000 if len(parts) == 1 else int(parts[1])
+    iter = 4800 if len(parts) == 1 else int(parts[1])
     print(f'Training for {iter} iterations...')
     train(iter)
+    if 'save' in parts:
+      handle_command(['save'])
   elif command == 'save':
     torch.save(model.state_dict(), 'model_cache/weights.pth')
     print('Saved model!')

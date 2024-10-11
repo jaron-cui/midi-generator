@@ -185,3 +185,4 @@ fabric.properties
 # .idea
 
 training_data/chunks/
+model_cache/old_weights/
