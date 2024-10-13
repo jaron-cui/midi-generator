@@ -12,6 +12,7 @@ Original file is located at
 
 import requests
 import urllib.request
+import os
 from bs4 import BeautifulSoup, SoupStrainer
 
 def scrape(link, depth, links):
@@ -31,12 +32,18 @@ def print_links(result, depth, links):
 def main():
   links = []
   scrape('https://www.midiworld.com/classic.htm', True, links)
-  print(links)
-  download = True
+
+  download = False
+  # Construct the full path for the downloaded file
   if download:
+    folder_path = 'midi_files'
+    os.makedirs(folder_path, exist_ok=True)
     for link in links:
       print(link)
-      urllib.request.urlretrieve(link, link[link.rfind('/') + 1:])
+      full_path = os.path.join(folder_path, link[link.rfind('/') + 1:])
+      urllib.request.urlretrieve(link, full_path)
+      break
 
 if __name__ == '__main__':
   main()
+
