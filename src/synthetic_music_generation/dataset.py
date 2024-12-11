@@ -68,4 +68,4 @@ def generate_dataset(
   print(f'Generated {file_index} files representing {num_tokens_generated} tokens.')
 
 
-generate_dataset('./data', target_num_tokens=100, tokenizer=lambda path: np.zeros(1))
+# generate_dataset('./data', target_num_tokens=100, tokenizer=lambda path: np.zeros(1))
