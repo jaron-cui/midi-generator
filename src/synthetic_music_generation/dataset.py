@@ -1,5 +1,6 @@
 import datetime
 import os
+import random
 import time
 from pathlib import Path
 from typing import Callable
@@ -13,7 +14,8 @@ def generate_dataset(
     directory: str,
     target_num_tokens: int,
     tokenizer: Callable[[str], np.ndarray],
-    file_namer: Callable[[int], str] = None
+    file_namer: Callable[[int], str] = None,
+    seed: int = None
 ):
   """
   Generate a synthetic dataset in a provided directory.
@@ -30,6 +32,7 @@ def generate_dataset(
   :param target_num_tokens: the number of tokens the dataset should constitute
   :param tokenizer: a function which takes in a single MIDI file path and returns its tokenized contents
   :param file_namer: optionally, a function that takes in a file index and formats a custom file name for that index
+  :param seed: seed for randomly generating the dataset
   :return: None
   """
   # set default file namer to name files "synthetic_midi0023.mid"
@@ -41,6 +44,7 @@ def generate_dataset(
 
   # generate files until the number of tokens is at least target_num_tokens
   print(f'Generating synthetic dataset of >= {target_num_tokens} tokens.')
+  random.seed(seed)
   start_time = time.time()
   num_tokens_generated = 0
   file_index = 0
@@ -68,4 +72,4 @@ def generate_dataset(
   print(f'Generated {file_index} files representing {num_tokens_generated} tokens.')
 
 
-# generate_dataset('./data', target_num_tokens=100, tokenizer=lambda path: np.zeros(1))
+# generate_dataset('./data', target_num_tokens=10, tokenizer=lambda path: np.zeros(1), seed=0)
