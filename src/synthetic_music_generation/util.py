@@ -1,7 +1,7 @@
 import math
 import random
-from typing import Union, List, TypeVar, Callable, Tuple
 from itertools import combinations, combinations_with_replacement
+from typing import Union, List, TypeVar, Callable, Tuple
 
 from midiutil import MIDIFile
 
@@ -385,7 +385,7 @@ def generate_rhythm(
   return rhythm
 
 
-def generate_section_pattern(recur: bool = True) -> List[Tuple[int, int]]:
+def generate_section_pattern(min_length: float = 6) -> List[Tuple[int, int]]:
   # A B A B'
   # return [(0, 0), (1, 0), (0, 0), (1, 1)]
 
@@ -422,9 +422,11 @@ def generate_section_pattern(recur: bool = True) -> List[Tuple[int, int]]:
   else:
     raise NotImplementedError('Unknown form: ' + form)
   section_pattern = [(alphabet.index(c), 0) for c in shorthand]
-  if len(shorthand) < 10 and recur:
+  sections = set([section for section, _ in section_pattern])
+  if len(shorthand) < min_length:
+    # print(min_length)
     mappings = {
-      section: generate_section_pattern(False) for section, _ in section_pattern
+      section: generate_section_pattern(min_length / len(sections)) for section in sections
     }
     offset = 0
     for section, pattern in mappings.items():
@@ -439,9 +441,9 @@ def transpose(notes: List[Note], by: int) -> List[Note]:
   return [Note(set([pitch + by for pitch in note.pitches]), note.duration) for note in notes]
 
 
-def convert_note_group_sequence_to_midi(left_hand: List[Note], right_hand: List[Note], save_path, tempo: int = 120):
-  right_track = 0
-  left_track = 1
+def convert_note_group_sequence_to_midi(left_hand: List[Note], right_hand: List[Note], save_path, merge_tracks: bool, tempo: int = 120):
+  right_track = 1
+  left_track = 0
   channel = 0
   # tempo = tempo
   volume = 100
@@ -461,3 +463,26 @@ def convert_note_group_sequence_to_midi(left_hand: List[Note], right_hand: List[
 
   with open(save_path, 'wb') as output_file:
     midi_file.writeFile(output_file)
+  if merge_tracks:
+    merge_midi_tracks(save_path, save_path)
+
+
+from mido import MidiFile, merge_tracks
+
+
+def merge_midi_tracks(original_file: str, save_to: str):
+  original = MidiFile(original_file)
+  # merge the two tracks with the most notes; we assume these are the most important
+  selected_tracks = sorted(original.tracks, key=lambda t: len(t), reverse=True)[:2]
+  track = merge_tracks(selected_tracks)
+  for message in list(track):
+    if message.type not in ['note_on', 'note_off', 'set_tempo']:
+      track.remove(message)
+  original.tracks = [track]
+  original.save(save_to)
+#
+#
+# for i, path in enumerate(glob.glob('original_real_data/*.mid*', recursive=True)):
+#   merge_midi_tracks(path, f'real_data/real{i}.mid')
+# m = MIDIFile('real_data/real0.mid')
+# len(m.tracks)
