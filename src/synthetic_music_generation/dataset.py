@@ -12,27 +12,23 @@ from synthetic_music_generation.generate import generate_piece
 
 def generate_dataset(
     directory: str,
-    target_num_tokens: int,
-    tokenizer: Callable[[str], np.ndarray],
+    num_files: int,
     file_namer: Callable[[int], str] = None,
-    seed: int = None
+    seed: int = None,
+    log_frequency: int = 10
 ):
   """
   Generate a synthetic dataset in a provided directory.
 
   Example usage:
   ::
-    directory = './dataset'
-    target_num_tokens = 20000
-    def tokenizer(midi_file_path: str) -> np.ndarray:
-      ...
-    generate_dataset(directory, target_num_tokens, tokenizer
+    generate_dataset('./dataset', 100)
 
   :param directory: the directory in which synthetic MIDI files should be saved
-  :param target_num_tokens: the number of tokens the dataset should constitute
-  :param tokenizer: a function which takes in a single MIDI file path and returns its tokenized contents
+  :param num_files: the number of files the dataset should constitute
   :param file_namer: optionally, a function that takes in a file index and formats a custom file name for that index
   :param seed: seed for randomly generating the dataset
+  :param log_frequency: the ETA will be calculated and printed every *log_frequency* files
   :return: None
   """
   # set default file namer to name files "synthetic_midi0023.mid"
@@ -43,16 +39,14 @@ def generate_dataset(
   os.makedirs(directory, exist_ok=True)
 
   # generate files until the number of tokens is at least target_num_tokens
-  print(f'Generating synthetic dataset of >= {target_num_tokens} tokens.')
+  print(f'Generating synthetic dataset of {num_files} files in \'{directory}\'. Time: {datetime.datetime.now()}')
   random.seed(seed)
   start_time = time.time()
-  num_tokens_generated = 0
-  file_index = 0
-  while num_tokens_generated < target_num_tokens:
-    if file_index % 10 == 0:
-      if num_tokens_generated > 0:
+  for file_index in range(num_files):
+    if file_index % log_frequency == 0:
+      if file_index > 0:
         time_elapsed = time.time() - start_time
-        eta = datetime.datetime.now() + datetime.timedelta(seconds=(time_elapsed / num_tokens_generated) * target_num_tokens)
+        eta = datetime.datetime.now() + datetime.timedelta(seconds=(time_elapsed / file_index) * (num_files - file_index))
       else:
         eta = 'N/A'
       print(f' - Generating file {file_index}. ETA: {eta}')
@@ -62,14 +56,9 @@ def generate_dataset(
     # generate the next synthetic MIDI file at file_path
     generate_piece(file_path)
 
-    # tokenize and record the size of the generated file
-    tokens = tokenizer(file_path)
-    num_tokens = tokens.size
-
-    num_tokens_generated += num_tokens
     file_index += 1
 
-  print(f'Generated {file_index} files representing {num_tokens_generated} tokens.')
+  print(f'Generated {num_files} files. Time: {datetime.datetime.now()}')
 
 
-# generate_dataset('./data', target_num_tokens=10, tokenizer=lambda path: np.zeros(1), seed=0)
+# generate_dataset('./data', num_files=700, seed=0)
