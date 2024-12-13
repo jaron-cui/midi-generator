@@ -510,6 +510,20 @@ class RunBlock(NoteBlock):
     self._notes = create_notes(pitches, rhythm, self.chord_progression, section_specs)
 
 
+# class ParallelBlock(NoteBlock):
+#   def __init__(self, block1: NoteBlock, block2: NoteBlock):
+#     super().__init__('parallel', block1.start_pitch, block1.end_pitch, block1.chord_progression)
+#     self.block1 = block1
+#     self.block2 = block2
+#
+#   def find_compatible_elements(self, block: 'NoteBlock') -> List[CompatibleElements]:
+#     pass
+#
+#   def generate_notes(self, motif_bank: 'NoteBlock', section_specs: SectionCharacteristics):
+#     self._notes = self.block1.generate_notes(motif_bank, section_specs)
+#     self._notes2 = self.block2.generate_notes(motif_bank, section_specs)
+
+
 class EmptyNoteBlock(NoteBlock):
   def __init__(self):
     super().__init__('empty', 0, 0, [])
@@ -530,11 +544,11 @@ def generate_spec() -> SectionCharacteristics:
   beat_harmonization_rate = random.uniform(0.2, 1.1)
   substructure_size_bounds = random.uniform(0.5, 4), 8
   phrase_block_rate = random.uniform(0.5, 2)
-  phrase_length_bounds = random.randint(1, 2), random.randint(2, 8)
+  phrase_length_bounds = random.randint(1, 2), random.randint(2, 10)
   max_substructures_per_block = random.randint(1, 6)
   template = TrackCharacteristics(
     measure_length=measure_length,
-    melody_velocity_bounds=(3, 8),
+    melody_velocity_bounds=(0.5, measure_length / 0.5),
     velocity_inertia=2,
     melody_syncopation_bounds=(0, 2),
     harmonization_bounds=(0, max_harmonization),
@@ -567,6 +581,26 @@ def generate_spec() -> SectionCharacteristics:
     note_duration_bounds=(0.5, 4)
   )
   return section_specs
+
+
+def derive_backing_specs(section_specs: SectionCharacteristics) -> SectionCharacteristics:
+  velocity_diff = random.uniform(-2.5, 0)
+  return SectionCharacteristics(
+    track_characteristics=section_specs.track_characteristics,
+    measure_length=section_specs.measure_length,
+    velocity=max(section_specs.velocity + velocity_diff, 0.5),
+    velocity_tolerance=section_specs.velocity_tolerance + 1,
+    syncopation=section_specs.syncopation - 0.5,
+    melody_syncopation_bounds=(0.0, 1.0),
+    harmonization_bounds=(0, min(section_specs.harmonization_bounds[1] + 2, 4)),
+    beat_harmonization_rate=section_specs.beat_harmonization_rate + random.uniform(0, 0.5),
+    borrow_likelihood=0.3,
+    max_pitch_interval=14,
+    pitch_bounds=(0, 1000),
+    substructures_per_block=section_specs.substructures_per_block - 0.5,
+    substructure_size_bounds=section_specs.substructure_size_bounds,
+    note_duration_bounds=(0.5, 4)
+  )
 
 
 def generate_chord_progression(duration: float, character: ChordCharacter, measure_length: int) -> List[Chord]:
@@ -611,60 +645,86 @@ def generate_pitch_changes(rhythm: List[float], chord_progression: List[Chord]) 
   return pitch_changes
 
 
-def generate_section() -> List[Note]:
+def generate_phrase(template: TrackCharacteristics) -> Tuple[ListNoteBlock, ListNoteBlock]:
+  min_phrase_length, max_phrase_length = template.phrase_length_bounds
+  m = template.measure_length
+  num_measures = random.randint(min_phrase_length, max_phrase_length)
+  # we scale measures down to the length of a beat so that we can control block syncopation rate without
+  # modifying the generate_rhythm function's syncopation detection
+  # print('BLOCK RHY<:', [(n + 1) / m for n in range(2 * m)])
+  block_rhythm = generate_rhythm(float(num_measures), 0, 10, template.phrase_block_syncopation_rate,
+                                 template.phrase_block_rate * num_measures, measure_duration=num_measures,
+                                 possible_durations=[(n + 1) / m for n in range(2 * m)])
+  block_rhythm = [round(n * m) for n in block_rhythm]
+  chord_progression = generate_chord_progression(num_measures * m, None, m)
+  pitch_changes = generate_pitch_changes(block_rhythm, chord_progression)
+  blocks = []
+  blocks2 = []
+  current_time = 0
+  for block_duration, (start_pitch, end_pitch) in zip(block_rhythm, pitch_changes):
+    block_type = random.choice(['stagnate', 'transition'])
+    block_chords = chord_excerpt(chord_progression, current_time, current_time + block_duration)
+    if block_type == 'stagnate':
+      blocks.append(StagnateBlock(start_pitch, block_chords))
+    elif block_type == 'transition':
+      blocks.append(TransitionBlock(start_pitch, end_pitch, block_chords))
+    blocks2.append(StagnateBlock(start_pitch, block_chords))
+  return ListNoteBlock(*blocks), ListNoteBlock(*blocks2)
+
+
+def generate_section() -> Tuple[List[Note], List[Note]]:
   section_specs = generate_spec()
   template = section_specs.track_characteristics
   phrase_pattern = generate_section_pattern()
   num_phrases = len(set(p[0] for p in phrase_pattern))
-  min_phrase_length, max_phrase_length = template.phrase_length_bounds
-  m = template.measure_length
   phrases = []
+  phrases2 = []
   for phrase_index in range(num_phrases):
-    num_measures = random.randint(min_phrase_length, max_phrase_length)
-    # we scale measures down to the length of a beat so that we can control block syncopation rate without
-    # modifying the generate_rhythm function's syncopation detection
-    # print('BLOCK RHY<:', [(n + 1) / m for n in range(2 * m)])
-    block_rhythm = generate_rhythm(float(num_measures), 0, 10, template.phrase_block_syncopation_rate,
-                                   template.phrase_block_rate * num_measures, measure_duration=num_measures,
-                                   possible_durations=[(n + 1) / m for n in range(2 * m)])
-    block_rhythm = [round(n * m) for n in block_rhythm]
-    chord_progression = generate_chord_progression(num_measures * m, None, m)
-    pitch_changes = generate_pitch_changes(block_rhythm, chord_progression)
-    blocks = []
-    current_time = 0
-    for block_duration, (start_pitch, end_pitch) in zip(block_rhythm, pitch_changes):
-      block_type = random.choice(['stagnate', 'transition'])
-      block_chords = chord_excerpt(chord_progression, current_time, current_time + block_duration)
-      if block_type == 'stagnate':
-        blocks.append(StagnateBlock(start_pitch, block_chords))
-      elif block_type == 'transition':
-        blocks.append(TransitionBlock(start_pitch, end_pitch, block_chords))
-    phrases.append(ListNoteBlock(*blocks))
+    tries = 20
+    while tries > 0:
+      try:
+        phrase, backing = generate_phrase(template)
+        section_specs.velocity = random.uniform(0.5, section_specs.measure_length / 0.5)
+        backing_specs = derive_backing_specs(section_specs)
+        phrase.generate_notes(EmptyNoteBlock(), section_specs)
+        backing.generate_notes(EmptyNoteBlock(), backing_specs)
+        phrases.append(phrase)
+        phrases2.append(backing)
+        break
+      except (RuntimeError, ValueError):
+        tries -= 1
+    else:
+      raise RuntimeError('Could not generate phrase.')
   section_phrases = [phrases[phrase_index] for (phrase_index, phrase_variant) in phrase_pattern]
   note_block = ListNoteBlock(*section_phrases)
-  for phrase in phrases:
-    phrase.generate_notes(EmptyNoteBlock(), section_specs)
-  return note_block.get_notes()
+  backing_block = ListNoteBlock(*[phrases2[phrase_index] for (phrase_index, phrase_variant) in phrase_pattern])
+  # for phrase in phrases:
+  #   phrase.generate_notes(EmptyNoteBlock(), section_specs)
+  return note_block.get_notes(), backing_block.get_notes()
 
 
-def generate_piece(save: str):
-  tries = 100
+def generate_piece(save: str, merge_tracks: bool = True):
+  tries = 10
   while tries > 0:
     try:
-      section = generate_section()
-      transpose_by = random.randint(-12, 12)
-      section = transpose(section, transpose_by)
+      section, backing = generate_section()
+      section_octave_boost = random.choice([0, 1])
+      backing_octave_boost = random.choice(range(section_octave_boost + 1))
+      transpose_by = random.randint(-12, 24)
+      section = transpose(section, transpose_by + section_octave_boost * 12)
+      backing = transpose(backing, transpose_by + backing_octave_boost * 12)
       break
     except (RuntimeError, ValueError):
+      # print('tryin again')
       tries -= 1
   else:
     raise RuntimeError('Could not generate piece.')
-  tempo = random.randint(40, 200)
-  convert_note_group_sequence_to_midi([], section, save, tempo=tempo)
+  tempo = random.randint(20, 250)
+  convert_note_group_sequence_to_midi(backing, section, save, merge_tracks, tempo=tempo)
 
 
 if __name__ == '__main__':
-  generate_piece('temp.mid')
+  generate_piece('temp.mid', merge_tracks=False)
   from pygame import mixer
   mixer.init()
   mixer.set_num_channels(80)
