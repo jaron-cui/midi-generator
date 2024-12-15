@@ -4,6 +4,7 @@ from itertools import combinations, combinations_with_replacement
 from typing import Union, List, TypeVar, Callable, Tuple
 
 from midiutil import MIDIFile
+from mido import MidiFile, merge_tracks
 
 from synthetic_music_generation.representations import parse_note, Chord, Note, SectionCharacteristics
 
@@ -39,7 +40,7 @@ def calculate_interval(note1: Union[int, str], note2: Union[int, str]) -> float:
 
 def create_notes(
     pitches: List[int], rhythm: List[float], chord_progression: List[Chord], section_spec: SectionCharacteristics) -> \
-List[Note]:
+    List[Note]:
   # longer notes are more likely to be harmonized
   # notes at the beginnings and ends of sequences are more likely to be harmonized
   # the 'center of mass' of sequential harmonization chords like to stay close until they can't -
@@ -385,7 +386,7 @@ def generate_rhythm(
   return rhythm
 
 
-def generate_section_pattern(min_length: float = 6) -> List[Tuple[int, int]]:
+def generate_section_pattern(min_length: float = 8) -> List[Tuple[int, int]]:
   # A B A B'
   # return [(0, 0), (1, 0), (0, 0), (1, 1)]
 
@@ -441,7 +442,8 @@ def transpose(notes: List[Note], by: int) -> List[Note]:
   return [Note(set([pitch + by for pitch in note.pitches]), note.duration) for note in notes]
 
 
-def convert_note_group_sequence_to_midi(left_hand: List[Note], right_hand: List[Note], save_path, merge_tracks: bool, tempo: int = 120):
+def convert_note_group_sequence_to_midi(left_hand: List[Note], right_hand: List[Note], save_path, merge_tracks: bool,
+                                        tempo: int = 120):
   right_track = 1
   left_track = 0
   channel = 0
@@ -467,9 +469,6 @@ def convert_note_group_sequence_to_midi(left_hand: List[Note], right_hand: List[
     merge_midi_tracks(save_path, save_path)
 
 
-from mido import MidiFile, merge_tracks
-
-
 def merge_midi_tracks(original_file: str, save_to: str):
   original = MidiFile(original_file)
   # merge the two tracks with the most notes; we assume these are the most important
@@ -480,9 +479,3 @@ def merge_midi_tracks(original_file: str, save_to: str):
       track.remove(message)
   original.tracks = [track]
   original.save(save_to)
-#
-#
-# for i, path in enumerate(glob.glob('original_real_data/*.mid*', recursive=True)):
-#   merge_midi_tracks(path, f'real_data/real{i}.mid')
-# m = MIDIFile('real_data/real0.mid')
-# len(m.tracks)
