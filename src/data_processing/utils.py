@@ -1,7 +1,6 @@
 import chord_recognition
 import numpy as np
 import miditoolkit
-import copy
 
 # parameters for input
 DEFAULT_VELOCITY_BINS = np.linspace(0, 128, 32+1, dtype=int)

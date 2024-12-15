@@ -123,13 +123,13 @@ def create_synthetic_dict(epochs: int, dictionary_path: str):
 # print(prepare_data(midi_paths, 'temp_dictionary.pkl').size)
 
 
-create_synthetic_dict(40, 'real+synth_dictionary_1hand.pkl')
+create_synthetic_dict(40, '../real+synth_dictionary_1hand.pkl')
 #396
 
 # pickling
 for epoch in range(40):
     midi_paths = glob.glob(f'synthetic_music_generation/synth_data_1hand/epoch{epoch}/*.mid*', recursive=True)
-    processed_data = prepare_data(midi_paths, 'real+synth_dictionary_1hand.pkl', max_tokens=1884160)
+    processed_data = prepare_data(midi_paths, '../real+synth_dictionary_1hand.pkl', max_tokens=1884160)
     save_path = f'synthetic_music_generation/synth_data_1hand/pickles/epoch{epoch}.npy'
     np.save(save_path, processed_data)
     print(f'Processed epoch {epoch} into {processed_data.size} tokens, saved at {save_path}. Time: {datetime.datetime.now()}')
