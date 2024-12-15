@@ -1,33 +1,16 @@
+import random
 import time
+from abc import ABC, abstractmethod
+from typing import List, Tuple, Set, Union
 
 import numpy
 from overrides import override
-import math
-import random
-from abc import ABC, abstractmethod
-from typing import List, Tuple, Set, Any, Union, TypeVar, Dict, Callable
-from dataclasses import dataclass
-from itertools import combinations
 
 from synthetic_music_generation.representations import Note, Chord, CompatibleElements, SectionCharacteristics, Key, \
   TrackCharacteristics, ChordCharacter
 from synthetic_music_generation.util import generate_arpeggio_possibilities, create_notes, generate_run_possibilities, \
   calculate_interval, chord_excerpt, next_scale_pitch, next_chord_pitch, item_at_time, generate_rhythm, \
   generate_section_pattern, transpose, convert_note_group_sequence_to_midi
-
-
-# def adapt_accidentals(notes: List[Note], src_chord_progression: List[Chord], tgt_chord_progression: List[Chord]) -> List[Note]:
-#   new_notes = []
-#   current_time = 0
-#   for note in notes:
-#     src_chord = item_at_time(src_chord_progression, current_time)
-#     tgt_chord = item_at_time(tgt_chord_progression, current_time)
-#     relative_difference = src_chord.key.pitch_as_scale_note(tgt_chord.key.pitch(0))
-#     scale_indices = {src_chord.key.pitch_as_scale_note(pitch) for pitch in note.pitches}
-#     adapted_pitches = {tgt_chord.key.pitch(index) for index in scale_indices}
-#     new_notes.append(Note(adapted_pitches, note.duration))
-#   return new_notes
-
 
 
 class NoteBlock(ABC):
@@ -672,7 +655,7 @@ def generate_phrase(template: TrackCharacteristics) -> Tuple[ListNoteBlock, List
   return ListNoteBlock(*blocks), ListNoteBlock(*blocks2)
 
 
-def generate_section() -> Tuple[List[Note], List[Note]]:
+def generate_section(left_hand: bool = True) -> Tuple[List[Note], List[Note]]:
   section_specs = generate_spec()
   template = section_specs.track_characteristics
   phrase_pattern = generate_section_pattern()
@@ -685,9 +668,10 @@ def generate_section() -> Tuple[List[Note], List[Note]]:
       try:
         phrase, backing = generate_phrase(template)
         section_specs.velocity = random.uniform(0.5, section_specs.measure_length / 0.5)
-        backing_specs = derive_backing_specs(section_specs)
         phrase.generate_notes(EmptyNoteBlock(), section_specs)
-        backing.generate_notes(EmptyNoteBlock(), backing_specs)
+        if left_hand:
+          backing_specs = derive_backing_specs(section_specs)
+          backing.generate_notes(EmptyNoteBlock(), backing_specs)
         phrases.append(phrase)
         phrases2.append(backing)
         break
@@ -700,14 +684,16 @@ def generate_section() -> Tuple[List[Note], List[Note]]:
   backing_block = ListNoteBlock(*[phrases2[phrase_index] for (phrase_index, phrase_variant) in phrase_pattern])
   # for phrase in phrases:
   #   phrase.generate_notes(EmptyNoteBlock(), section_specs)
-  return note_block.get_notes(), backing_block.get_notes()
+  melody_notes = note_block.get_notes()
+  backing_notes = backing_block.get_notes() if left_hand else []
+  return melody_notes, backing_notes
 
 
-def generate_piece(save: str, merge_tracks: bool = True):
+def generate_piece(save: str, merge_tracks: bool = True, left_hand: bool = True):
   tries = 10
   while tries > 0:
     try:
-      section, backing = generate_section()
+      section, backing = generate_section(left_hand)
       section_octave_boost = random.choice([0, 1])
       backing_octave_boost = random.choice(range(section_octave_boost + 1))
       transpose_by = random.randint(-12, 24)
@@ -715,7 +701,6 @@ def generate_piece(save: str, merge_tracks: bool = True):
       backing = transpose(backing, transpose_by + backing_octave_boost * 12)
       break
     except (RuntimeError, ValueError):
-      # print('tryin again')
       tries -= 1
   else:
     raise RuntimeError('Could not generate piece.')
@@ -724,7 +709,7 @@ def generate_piece(save: str, merge_tracks: bool = True):
 
 
 if __name__ == '__main__':
-  generate_piece('temp.mid', merge_tracks=False)
+  generate_piece('temp.mid', merge_tracks=False, left_hand=True)
   from pygame import mixer
   mixer.init()
   mixer.set_num_channels(80)
