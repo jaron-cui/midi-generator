@@ -709,11 +709,11 @@ def generate_piece(save: str, merge_tracks: bool = True, left_hand: bool = True)
 
 
 if __name__ == '__main__':
-  generate_piece('temp.mid', merge_tracks=False, left_hand=True)
+  generate_piece('../../output/miscellaneous/temp.mid', merge_tracks=False, left_hand=True)
   from pygame import mixer
   mixer.init()
   mixer.set_num_channels(80)
-  mixer.music.load('temp.mid')
+  mixer.music.load('../../output/miscellaneous/temp.mid')
   mixer.music.play()
   while mixer.music.get_busy():
     time.sleep(1)

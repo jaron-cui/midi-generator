@@ -28,7 +28,7 @@ def extract_events(input_path, chord=False):
 def create_dictionary(midi_paths: List[str], dictionary_path: str):
     counts = Counter()
     # all_elements = []
-    # for midi_file in glob.glob("D:/files_2_jaron/midi_files/*.mid*", recursive=True):
+    # for midi_file in glob.glob("D:/files_2_jaron/midi_webscrape/*.mid*", recursive=True):
     for i, midi_file in enumerate(midi_paths):
         if i % 100 == 0:
             print(f'Added {i} files to dictionary so far. Time: {datetime.datetime.now()}')
@@ -108,12 +108,12 @@ def prepare_data(midi_paths, dictionary_path: str, max_tokens: int = None) -> np
 
 
 def create_synthetic_dict(epochs: int, dictionary_path: str):
-    midi_paths = glob.glob('synthetic_music_generation/original_real_data/*.mid*', recursive=True)
+    midi_paths = glob.glob('../../output/real_data/real_data_1hand/*.mid*', recursive=True)
     # generate unique dataset for each epoch
     for i in range(epochs):
         if i not in range(28):
-            generate_dataset(f'synthetic_music_generation/synth_data_1hand/epoch{i}', 750, seed=i, log_frequency=50)
-        midi_paths += glob.glob(f'synthetic_music_generation/synth_data_1hand/epoch{i}/*.mid*', recursive=True)
+            generate_dataset(f'../../output/synthetic_data/synth_data_1hand/epoch{i}', 750, seed=i, log_frequency=50)
+        midi_paths += glob.glob(f'../../output/synthetic_data/synth_data_1hand/epoch{i}/*.mid*', recursive=True)
     # create the dictionary from the real data and all synthetic data
     create_dictionary(midi_paths, dictionary_path)
 
@@ -123,13 +123,13 @@ def create_synthetic_dict(epochs: int, dictionary_path: str):
 # print(prepare_data(midi_paths, 'temp_dictionary.pkl').size)
 
 
-create_synthetic_dict(40, '../real+synth_dictionary_1hand.pkl')
+create_synthetic_dict(40, '../../output/pickled_dictionaries/real+synth_dictionary_1hand.pkl')
 #396
 
 # pickling
 for epoch in range(40):
-    midi_paths = glob.glob(f'synthetic_music_generation/synth_data_1hand/epoch{epoch}/*.mid*', recursive=True)
-    processed_data = prepare_data(midi_paths, '../real+synth_dictionary_1hand.pkl', max_tokens=1884160)
-    save_path = f'synthetic_music_generation/synth_data_1hand/pickles/epoch{epoch}.npy'
+    midi_paths = glob.glob(f'../../output/synthetic_data/synth_data_1hand/epoch{epoch}/*.mid*', recursive=True)
+    processed_data = prepare_data(midi_paths, '../../output/pickled_dictionaries/real+synth_dictionary_1hand.pkl', max_tokens=1884160)
+    save_path = f'../../output/synthetic_data/synth_data_1hand/pickles/epoch{epoch}.npy'
     np.save(save_path, processed_data)
     print(f'Processed epoch {epoch} into {processed_data.size} tokens, saved at {save_path}. Time: {datetime.datetime.now()}')

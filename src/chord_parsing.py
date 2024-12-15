@@ -1,7 +1,7 @@
 from musiclang import Score
 from musiclang.library import *
 
-score = Score.from_midi('pull_files/midi_files/bwv772.mid')
+score = Score.from_midi('../output/midi_webscrape/bwv772.mid')
 chords = score.to_chords_with_duration()
 print(chords)
 notes = r
