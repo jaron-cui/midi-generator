@@ -20,6 +20,9 @@ def parse_note(index: Union[int, str]) -> Tuple[int, int]:
 
 
 class Key:
+  """
+  Describes a musical key.
+  """
   def __init__(self, pitches: List[int]):
     self._pitches = pitches
 
@@ -117,6 +120,9 @@ class Key:
 
 @dataclass
 class Note:
+  """
+  Represents a generated collection of notes played simultaneously.
+  """
   pitches: Set[int]
   duration: float
 
@@ -124,7 +130,9 @@ class Note:
 @dataclass
 class Chord:
   """
-
+  Represents a chord in a chord progression.
+  Describes the key of the chord, the notes of the key which are chord notes,
+  and additional parameters for the chord quality.
   """
   key: Key
   notes: List[int]
@@ -150,7 +158,6 @@ class Chord:
   @staticmethod
   def sus2(key: Key, duration: float) -> 'Chord':
     return Chord(key, [1, 2, 5], duration)
-
 
 
 @dataclass

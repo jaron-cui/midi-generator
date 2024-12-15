@@ -2,10 +2,7 @@ import datetime
 import os
 import random
 import time
-from pathlib import Path
 from typing import Callable
-
-import numpy as np
 
 from synthetic_music_generation.generate import generate_piece
 
@@ -54,7 +51,7 @@ def generate_dataset(
     file_path = os.path.join(directory, file_name)
 
     # generate the next synthetic MIDI file at file_path
-    generate_piece(file_path)
+    generate_piece(file_path, merge_tracks=False, left_hand=False)
 
     file_index += 1
 
