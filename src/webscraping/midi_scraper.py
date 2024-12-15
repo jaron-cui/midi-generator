@@ -27,7 +27,7 @@ def main():
   download = False
   print(len(links))
   # Construct the full path for the downloaded file
-  folder_path = 'midi_files'
+  folder_path = '../../output/midi_webscrape'
   os.makedirs(folder_path, exist_ok=True)
   i = 0
   # random.shuffle(links)
